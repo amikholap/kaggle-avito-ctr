@@ -41,8 +41,13 @@ DATA_TYPES = {
     'loc_level': int,
     'region_id': int,
     'city_id': int,
+    'search_query': str,
+    'query_common_tokens': float,
+    'query_common_numbers': float,
+    'query_lcs': float,
     'search_cat_id': int,
     'search_cat_level': int,
+    'ad_title': str,
     'ad_cat_id': int,
     'ad_cat_level': int,
 }

@@ -1,6 +1,10 @@
 import numpy as np
+import pymorphy2
+import re
+import string
 
-from .globals import DATA
+from .globals import DATA, session
+from .models import Category
 
 
 class Preprocessor(object):
@@ -11,7 +15,9 @@ class Preprocessor(object):
         A list of the first pass agents.
         """
         return [
+            self.category_feature_extractor,
             self.price_discretizer,
+            # self.text_feature_extractor,
         ]
 
     @property
@@ -28,7 +34,10 @@ class Preprocessor(object):
         return self.agents1 + self.agents2
 
     def __init__(self):
+        self.category_feature_extractor = CategoryFeatureExtractor()
         self.price_discretizer = QuantileDiscretizer('price', 20)
+        self.text_feature_extractor = TextFeatureExtractor()
+
         self.one_hot_encoder = IterativeSparseOneHotEncoder(DATA['CATEGORICAL'])
 
     def fit(self, X_factory):
@@ -185,3 +194,102 @@ class QuantileDiscretizer(PreprocessorAgent):
                 row[i] = (self.transformed_field, transformed_value)
                 break
         return row
+
+
+class CategoryFeatureExtractor(PreprocessorAgent):
+
+    def __init__(self):
+        self.categories = {c.category_id: c for c in session.query(Category)}
+
+    def transform(self, row):
+        for (field, value) in row:
+            if field == 'search_cat_id':
+                search_cat_id = value
+            elif field == 'ad_cat_id':
+                ad_cat_id = value
+
+        search_cat = self.categories[search_cat_id]
+        ad_cat = self.categories[ad_cat_id]
+
+        if search_cat.category_id == ad_cat.category_id:
+            row.append(('search_ad_same_cat', 1))
+        if search_cat.parent_category_id == ad_cat.parent_category_id:
+            row.append(('search_ad_same_parent_cat', 1))
+
+        return row
+
+
+class TextFeatureExtractor(PreprocessorAgent):
+
+    analyzer = pymorphy2.MorphAnalyzer()
+    number_pattern = re.compile('\d+')
+    punctuation_pattern = re.compile(r'[{}]'.format(string.punctuation))
+
+    def transform(self, row):
+        search_query_idx = ad_title_idx = None
+        search_query = ad_title = None
+
+        for i, (field, value) in enumerate(row):
+            if field == 'search_query':
+                search_query_idx = i
+            elif field == 'ad_title':
+                ad_title_idx = i
+
+            if search_query_idx is not None and ad_title_idx is not None:
+                break
+
+        ad_title = row.pop(ad_title_idx)[1]
+
+        if search_query_idx is None:
+            # Don't do anything if search query is missing.
+            return row
+
+        if ad_title_idx < search_query_idx:
+            # Compensate for the pop.
+            search_query_idx -= 1
+        search_query = row.pop(search_query_idx)[1]
+
+        search_query_tokens = self._tokenize(search_query)
+        ad_title_tokens = self._tokenize(ad_title)
+
+        search_query = ''.join(search_query_tokens)
+        ad_title = ''.join(ad_title_tokens)
+
+        row.extend([
+            ('query_common_tokens', self._get_common_tokens_percentage(search_query_tokens, ad_title_tokens)),
+            ('query_common_numbers', self._get_common_numbers_percentage(search_query, ad_title)),
+            ('query_lcs', self._get_lcs_len_percentage(search_query, ad_title)),
+        ])
+
+        return row
+
+    def _tokenize(self, s):
+        s = self._remove_punctuation(s)
+        s = self._normalize(s)
+        return s
+
+    def _remove_punctuation(self, s):
+        return re.sub(self.punctuation_pattern, '', s)
+
+    def _normalize(self, s):
+        """Make lowercase and convert all words to their normal form."""
+        return [self.analyzer.normal_forms(w)[0] for w in s.split()]
+
+    def _get_common_tokens_percentage(self, tokens1, tokens2):
+        """Calculate a proportion of common tokens with respect to the first argument."""
+        s1 = set(tokens1)
+        s2 = set(tokens2)
+        p = len(s1 & s2) / len(s1) if s1 else 0
+        return p
+
+    def _get_lcs_len_percentage(self, s1, s2):
+        """Calculate a proportion of a longest common substring length to the first string length."""
+        lcs = pymorphy2.utils.longest_common_substring([s1, s2])
+        return len(lcs) / len(s1) if s1 else 0
+
+    def _get_common_numbers_percentage(self, s1, s2):
+        """Calculate a proportion of common numbers to a total count of numbers in the first string."""
+        ns1 = set(re.findall(self.number_pattern, s1))
+        ns2 = set(re.findall(self.number_pattern, s2))
+        p = len(ns1 & ns2) / len(ns1) if ns1 else 0
+        return p

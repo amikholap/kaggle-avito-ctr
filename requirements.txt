@@ -1,3 +1,4 @@
 pandas
+pymorphy2
 sqlalchemy
 tables
