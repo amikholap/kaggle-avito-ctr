@@ -1,3 +1,4 @@
+import gzip
 import math
 import tempfile
 
@@ -8,10 +9,13 @@ def cv(clf, filename, n_folds=5):
     scores = []
 
     for part in range(1, n_folds + 1):
-        with open(filename) as src, \
+        with gzip.open(filename, 'rt') as src, \
                 tempfile.NamedTemporaryFile(mode='w') as train_dst, \
                 tempfile.NamedTemporaryFile(mode='w') as test_dst:
-            train_test_split(src, train_dst, test_dst, n_folds, part)
+
+            with gzip.open(train_dst.name, 'wt') as train_dst_gz, \
+                    gzip.open(test_dst.name, 'wt') as test_dst_gz:
+                train_test_split(src, train_dst_gz, test_dst_gz, n_folds, part)
 
             clf.fit(stream_encoded_dataset(train_dst.name))
             score = logloss(clf, stream_encoded_dataset(test_dst.name))
@@ -52,3 +56,6 @@ def train_test_split(src, train_dst, test_dst, n_folds, part=1):
             test_dst.write(line)
         else:
             train_dst.write(line)
+
+    train_dst.flush()
+    test_dst.flush()

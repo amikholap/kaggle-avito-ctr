@@ -1,17 +1,18 @@
 import csv
+import gzip
 import json
 
 from .globals import DATA, DATA_TYPES
 
 
-def stream_sparse_dataset(tsv):
+def stream_sparse_dataset(filename):
     """
-    Iterate through tsv converting rows to sparse representation.
+    Iterate through gzipped tsv converting rows to sparse representation.
 
     Target variable is always the first of a row.
     """
 
-    with open(tsv) as f:
+    with gzip.open(filename, 'rt') as f:
         reader = csv.DictReader(f, delimiter='\t')
 
         for raw_row in reader:
@@ -40,7 +41,7 @@ def stream_encoded_dataset(filename):
     x is a list of (field, index, value).
     y is an integer.
     """
-    with open(filename) as f:
+    with gzip.open(filename, 'rt') as f:
         for line in f:
             row = json.loads(line)
             y = row.pop(0)[2]

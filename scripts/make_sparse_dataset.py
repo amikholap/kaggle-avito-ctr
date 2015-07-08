@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import gzip
 import json
 import os
 import pickle
@@ -12,7 +13,7 @@ from kaggle_avito_ctr.utils import stream_sparse_dataset
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('source_file', help='TSV containing the dataset')
-    parser.add_argument('target_file', help='TXT containing the result')
+    parser.add_argument('target_file', help='Gzipped text file containing the result')
     parser.add_argument('preprocessor', help='Pickled preprocessor')
 
     args = parser.parse_args()
@@ -24,7 +25,7 @@ def main():
 
 
 def transform(src, dst, preprocessor):
-    with open(dst, 'w') as dst_file:
+    with gzip.open(dst, 'wt') as dst_file:
         for i, row in enumerate(stream_sparse_dataset(src)):
             transformed_row = preprocessor.transform(row)
             transformed_row_json = json.dumps(transformed_row)

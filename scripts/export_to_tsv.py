@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import gzip
 import os
 import sys
 
@@ -22,7 +23,7 @@ def main():
 def export(dst, offset, limit):
     field_names = get_field_names()
 
-    with open(dst, 'w') as f:
+    with gzip.open(dst, 'wt') as f:
         writer = csv.DictWriter(f, fieldnames=field_names, delimiter='\t')
         writer.writeheader()
         for row in extract_data(offset, limit):
