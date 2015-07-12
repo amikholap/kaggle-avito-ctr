@@ -15,7 +15,7 @@ class OnlineLogisticRegression(object):
         self.weights = collections.defaultdict(lambda: copy.copy(field_weights_template))
         self.intercept_weight = 0
 
-        for i, (x, y) in enumerate(data):
+        for i, (x, y) in enumerate(data, 1):
             y_hat = self.predict(x)
             error = y_hat - y
 
@@ -23,7 +23,9 @@ class OnlineLogisticRegression(object):
                 self.weights[field][index] -= alpha * error * value
 
             if i % 100000 == 0:
-                print('Processed {} rows'.format(i))
+                print('Processed {} rows'.format(i), end='\r')
+
+        print('Processed {} rows'.format(i))
 
     def predict(self, x):
         z = 0

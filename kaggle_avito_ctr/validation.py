@@ -1,28 +1,56 @@
-import gzip
+import logging
 import math
-import tempfile
 
-from .extraction import stream_encoded_dataset
+from .extraction import SparseDataset
 
 
-def cv(clf, filename, n_folds=5):
+_logger = logging.getLogger(__name__)
+
+
+def cv(clf, filename, n_folds=5, num_samples=None):
     scores = []
 
-    for part in range(1, n_folds + 1):
-        with gzip.open(filename, 'rt') as src, \
-                tempfile.NamedTemporaryFile(mode='w') as train_dst, \
-                tempfile.NamedTemporaryFile(mode='w') as test_dst:
+    if num_samples is not None:
+        test_limit = num_samples / n_folds
+        train_limit = num_samples - test_limit
+    else:
+        train_limit = test_limit = None
 
-            with gzip.open(train_dst.name, 'wt') as train_dst_gz, \
-                    gzip.open(test_dst.name, 'wt') as test_dst_gz:
-                train_test_split(src, train_dst_gz, test_dst_gz, n_folds, part)
+    with SparseDataset(filename) as train_ds:
+        with SparseDataset(filename) as test_ds:
+            for part in range(n_folds):
+                train_iterator = train_ds.iterator(offset=part, limit=train_limit, skip_nth=n_folds)
+                test_iterator = test_ds.iterator(offset=part, limit=test_limit, every_nth=n_folds)
 
-            clf.fit(stream_encoded_dataset(train_dst.name))
-            score = logloss(clf, stream_encoded_dataset(test_dst.name))
+                clf.fit(train_iterator)
+                score = logloss(clf, test_iterator)
 
-        scores.append(score)
+                scores.append(score)
 
-        print('CV {}/{} score: {}'.format(part, n_folds, score))
+                _logger.info('CV {}/{} score: {}'.format(part, n_folds, score))
+
+    return scores
+
+
+def validation_curve(clf, filename, train_sizes, test_proporion=0.2):
+    scores = []
+    nth = int(1 / test_proporion)
+
+    with SparseDataset(filename) as train_ds:
+        with SparseDataset(filename) as test_ds:
+            for limit in train_sizes:
+                train_iterator = train_ds.iterator(limit=limit, skip_nth=nth)
+                clf.fit(train_iterator)
+
+                train_iterator = train_ds.iterator(limit=limit, skip_nth=nth)
+                test_iterator = test_ds.iterator(every_nth=nth)
+                train_score = logloss(clf, train_iterator)
+                test_score = logloss(clf, test_iterator)
+
+                scores.append((train_score, test_score))
+
+                _logger.info('{} samples train/test scores: {:.5}/{:.5}'
+                             .format(limit, train_score, test_score))
 
     return scores
 
@@ -45,17 +73,3 @@ def logloss(clf, data):
     loss /= n
 
     return loss
-
-
-def train_test_split(src, train_dst, test_dst, n_folds, part=1):
-    assert n_folds > 1
-    assert 0 < part <= n_folds
-
-    for i, line in enumerate(src):
-        if (i + part) % n_folds == 0:
-            test_dst.write(line)
-        else:
-            train_dst.write(line)
-
-    train_dst.flush()
-    test_dst.flush()

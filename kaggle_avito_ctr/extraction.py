@@ -31,7 +31,6 @@ COLUMNS = [
     SearchCategory.category_id.label('search_cat_id'),
     SearchCategory.level.label('search_cat_level'),
     AdCategory.category_id.label('ad_cat_id'),
-    AdCategory.level.label('ad_cat_level'),
 ]
 
 
@@ -67,39 +66,46 @@ class Dataset(object):
         line += '\n'
         self.file.write(line)
 
-    def iterator(self, offset=None, limit=None, every_nth=None, skip_nth=None):
+    def iterator(self, offset=0, limit=None, skip_nth=None, every_nth=None, n_cycles=1):
         """
         Iterator for the dataset.
 
         Args:
-            offset: Skip first n rows.
-            limit: Return no more than n rows.
-            every_nth: Return only n-th rows.
-            skip_nth: Skip n-th rows.
+            offset: Skip first N rows.
+            limit: Return no more than N rows.
+            skip_nth: Skip every N-th row.
+            every_nth: Return only every N-th row.
+            n_cycles: Iterate N times.
         """
 
         n_yielded = 0
 
-        for i, line in enumerate(self.file):
+        for _ in range(n_cycles):
 
-            if offset is not None and i < offset:
-                continue
+            self.reset()
 
-            if limit is not None and n_yielded >= limit:
-                break
+            for i, line in enumerate(self.file):
 
-            if every_nth is not None and n_yielded % every_nth != 0:
-                continue
+                if i < offset:
+                    continue
 
-            if skip_nth is not None and n_yielded % skip_nth == 0:
-                continue
+                if limit is not None and n_yielded >= limit:
+                    break
 
-            line = line.rstrip('\n')
-            row = self._decode_row(line)
+                # +1 to avoid cycling.
+                # This doesn't change the semantics.
+                if skip_nth is not None and (i + offset + 1) % skip_nth == 0:
+                    continue
 
-            yield row
+                if every_nth is not None and (i + offset + 1) % every_nth != 0:
+                    continue
 
-            n_yielded += 1
+                line = line.rstrip('\n')
+                row = self._decode_row(line)
+
+                yield row
+
+                n_yielded += 1
 
     def __enter__(self):
         return self
@@ -109,6 +115,10 @@ class Dataset(object):
 
     def flush(self):
         self.file.flush()
+
+    def reset(self):
+        """Set cursor position to the beginning of a file."""
+        self.file.seek(0)
 
 
 class GzipCompressorMixin(object):
@@ -143,7 +153,15 @@ class RawDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
 
 
 class SparseDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
-    pass
+
+    def iterator(self, *args, **kwargs):
+        """
+        Iterate over (x, y) pairs.
+        """
+        it = super().iterator(*args, **kwargs)
+        for row in it:
+            y = row.pop(0)[2]
+            yield row, y
 
 
 def extract_data(offset=None, limit=None):

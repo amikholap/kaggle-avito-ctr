@@ -17,7 +17,6 @@ DATA = {
         'search_cat_id',
         'search_cat_level',
         'ad_cat_id',
-        'ad_cat_level',
         'price_percentile',
     },
 }
