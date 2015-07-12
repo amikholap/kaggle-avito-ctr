@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 import argparse
-import csv
-import gzip
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from kaggle_avito_ctr.extraction import extract_data, get_field_names
+from kaggle_avito_ctr.extraction import extract_data, RawDataset
 
 
 def main():
@@ -21,13 +19,9 @@ def main():
 
 
 def export(dst, offset, limit):
-    field_names = get_field_names()
-
-    with gzip.open(dst, 'wt') as f:
-        writer = csv.DictWriter(f, fieldnames=field_names, delimiter='\t')
-        writer.writeheader()
+    with RawDataset(dst, 'w') as ds:
         for row in extract_data(offset, limit):
-            writer.writerow(row)
+            ds.append(row)
 
 
 if __name__ == '__main__':

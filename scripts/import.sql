@@ -76,13 +76,16 @@ CREATE TABLE ads_info
 	ad_id INTEGER PRIMARY KEY,
 	location_id INTEGER,
 	category_id INTEGER,
-	params VARCHAR(560),
+	params JSON,
+	params_raw VARCHAR(560),
 	price REAL,
 	title VARCHAR(140),
 	is_context INTEGER
 );
 
 COPY ads_info (ad_id, location_id, category_id, params, price, title, is_context) FROM '/avito/data/AdsInfo.tsv' CSV DELIMITER E'\t' HEADER;
+
+UPDATE ads_info SET params = regexp_replace(regexp_replace(regexp_replace(params_raw, E'\'', E'"', 'g'), '(:"\w+)"(\w+"[,}])', E'\\1\'\\2'), '(\d+):', '"\1":', 'g')::json;
 
 CLUSTER ads_info USING ads_info_pkey;
 CREATE INDEX ads_info_location_id ON ads_info (location_id) WITH (FILLFACTOR = 100);
@@ -119,9 +122,11 @@ CREATE TABLE search_info
 	search_query VARCHAR(760),
 	location_id INTEGER,
 	category_id INTEGER,
-	search_params VARCHAR(175)
+	search_params JSON,
+	search_params_raw VARCHAR(175)
 );
 COPY search_info (search_id, search_date, ip_id , user_id, is_user_logged_on, search_query, location_id, category_id, search_params) FROM '/avito/data/SearchInfo.tsv' CSV DELIMITER E'\t' HEADER;
+UPDATE search_info SET search_params = regexp_replace(regexp_replace(regexp_replace(regexp_replace(search_params_raw, E'\'', E'"', 'g'), ', (\w+)"(?=[\w," ]*\])', ', "\1"', 'g'), '(:"\w+)"(\w+"[,}])', E'\\1\'\\2'), '([\d\w]+):', '"\1":', 'g')::JSON;
 
 ALTER TABLE search_info ADD CONSTRAINT pk_search_info PRIMARY KEY (search_id);
 CLUSTER search_info USING pk_search_info;

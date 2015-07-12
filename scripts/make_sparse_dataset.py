@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 import argparse
-import gzip
-import json
 import os
 import pickle
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from kaggle_avito_ctr.utils import stream_sparse_dataset
+from kaggle_avito_ctr.extraction import RawDataset, SparseDataset
 
 
 def main():
@@ -25,15 +23,16 @@ def main():
 
 
 def transform(src, dst, preprocessor):
-    with gzip.open(dst, 'wt') as dst_file:
-        for i, row in enumerate(stream_sparse_dataset(src)):
-            transformed_row = preprocessor.transform(row)
-            transformed_row_json = json.dumps(transformed_row)
-            dst_file.write(transformed_row_json)
-            dst_file.write('\n')
+    with RawDataset(src) as src_ds:
+        with SparseDataset(dst, 'w') as dst_ds:
+            for (i, row) in enumerate(src_ds.sparse_iterator()):
+                transformed_row = preprocessor.transform(row)
+                dst_ds.append(transformed_row)
 
-            if i % 100000 == 0:
-                print(i)
+                if i % 100000 == 0:
+                    print('Processed {} rows'.format(i), end='\r')
+
+    print()
 
 
 if __name__ == '__main__':

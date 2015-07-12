@@ -1,5 +1,5 @@
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, SmallInteger, String
-from sqlalchemy.dialects.postgresql import BIT
+from sqlalchemy.dialects.postgresql import BIT, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import backref, relationship
 
@@ -37,7 +37,7 @@ class AdInfo(Base):
     ad_id = Column(Integer, primary_key=True)
     location_id = Column(Integer, ForeignKey('{}.location_id'.format(TableNames.location)))
     category_id = Column(Integer, ForeignKey('{}.category_id'.format(TableNames.category)))
-    params = Column(String(560))
+    params = Column(JSON)
     price = Column(Float)
     title = Column(String(140))
     is_context = Column(Integer)
@@ -87,7 +87,7 @@ class SearchInfo(Base):
     search_query = Column(String(760))
     location_id = Column(Integer, ForeignKey('{}.location_id'.format(TableNames.location)))
     category_id = Column(Integer, ForeignKey('{}.category_id'.format(TableNames.category)))
-    search_params = Column(String(175))
+    search_params = Column(JSON)
 
     user = relationship('UserInfo', backref=backref('searches'))
     location = relationship('Location', backref=backref('searches'))

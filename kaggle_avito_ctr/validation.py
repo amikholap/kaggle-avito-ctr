@@ -2,7 +2,7 @@ import gzip
 import math
 import tempfile
 
-from .utils import stream_encoded_dataset
+from .extraction import stream_encoded_dataset
 
 
 def cv(clf, filename, n_folds=5):
