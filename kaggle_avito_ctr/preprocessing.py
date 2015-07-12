@@ -1,10 +1,15 @@
-import numpy as np
-import pymorphy2
+import logging
 import re
 import string
 
+import numpy as np
+import pymorphy2
+
 from .globals import DATA, session
 from .models import Category
+
+
+_logger = logging.getLogger(__name__)
 
 
 class Preprocessor(object):
@@ -116,9 +121,17 @@ class IterativeSparseOneHotEncoder(PreprocessorAgent):
 
     def finish_fit(self):
         """Assign each feature value a position in one-hot encoded vector."""
-        for mapping in self._feature_mapping.values():
+
+        msg = '{} summary:\n'.format(self.__class__.__name__)
+
+        for field, mapping in sorted(self._feature_mapping.items(),
+                                     key=lambda pair: len(pair[1])):
             for i, value in enumerate(mapping.keys()):
                 mapping[value] = i
+
+            msg += '{:25} | {} distinct values\n'.format(field, len(mapping))
+
+        _logger.info(msg)
 
     def transform(self, row):
         """
