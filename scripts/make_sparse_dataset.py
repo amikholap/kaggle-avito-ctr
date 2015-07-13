@@ -10,7 +10,7 @@ from kaggle_avito_ctr.extraction import RawDataset, SparseDataset
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('source_file', help='TSV containing the dataset')
+    parser.add_argument('source_file', help='Name of a file containing the dataset')
     parser.add_argument('target_file', help='Gzipped text file containing the result')
     parser.add_argument('preprocessor', help='Pickled preprocessor')
 
