@@ -9,6 +9,18 @@ class OnlineLogisticRegression(object):
     def __init__(self):
         self.weights = {}
 
+    @property
+    def weights_flat(self):
+        weights = []
+
+        for field, subweights in self.weights.items():
+            for index, value in subweights.items():
+                weights.append((field, index, value))
+
+        weights = sorted(weights, key=lambda x: abs(x[2]))
+
+        return weights
+
     def fit(self, data, alpha=0.01):
 
         field_weights_template = collections.defaultdict(lambda: 0)

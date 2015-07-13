@@ -20,7 +20,7 @@ COLUMNS = [
     # SearchInfo.search_params.label('search_params'),
     AdInfo.price,
     # AdInfo.title.label('ad_title'),
-    # AdInfo.params.label('ad_params'),
+    AdInfo.params.label('ad_params'),
     Location.level.label('loc_level'),
     Location.region_id,
     Location.city_id,

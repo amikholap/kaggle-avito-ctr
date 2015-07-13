@@ -22,6 +22,7 @@ class Preprocessor(object):
         return [
             self.category_feature_extractor,
             self.price_discretizer,
+            self.params_id_extractor,
             # self.text_feature_extractor,
         ]
 
@@ -41,6 +42,7 @@ class Preprocessor(object):
     def __init__(self):
         self.category_feature_extractor = CategoryFeatureExtractor()
         self.price_discretizer = QuantileDiscretizer('price', 20)
+        self.params_id_extractor = ParamsIdExtractor()
         self.text_feature_extractor = TextFeatureExtractor()
 
         self.one_hot_encoder = IterativeSparseOneHotEncoder(DATA['CATEGORICAL'])
@@ -173,7 +175,7 @@ class QuantileDiscretizer(PreprocessorAgent):
     def __init__(self, field, q):
         self.field = field
         self.transformed_field = '{}_percentile'.format(self.field)
-        self.q = np.linspace(0, 100, q + 1)[1:-1]
+        self.q = np.linspace(0, 100, q + 3)[1:-1]
 
     def prepare_fit(self):
         self._index = 0
@@ -306,3 +308,22 @@ class TextFeatureExtractor(PreprocessorAgent):
         ns2 = set(re.findall(self.number_pattern, s2))
         p = len(ns1 & ns2) / len(ns1) if ns1 else 0
         return p
+
+
+class ParamsIdExtractor(PreprocessorAgent):
+
+    def transform(self, row):
+        for i, (field, value) in enumerate(row):
+            if field == 'ad_params':
+                break
+        else:
+            raise RuntimeError('A row does not contain ad_params')
+
+        ad_params = row.pop(i)[1]
+
+        if ad_params:
+            for key in ad_params:
+                value = int(key)
+                row.append(('ad_parameter', value))
+
+        return row
