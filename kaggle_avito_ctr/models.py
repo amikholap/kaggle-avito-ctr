@@ -4,28 +4,28 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import backref, relationship
 
 
-class TableNames(object):
-    ad_info = 'ads_info_sample'
-    category = 'category'
-    location = 'location'
-    phone_request = 'phone_requests_stream_sample'
-    search_info = 'search_info_sample'
-    train_search_stream = 'train_search_stream_sample'
-    test_search_stream = 'test_search_stream'
-    user_info = 'user_info_sample'
-    visit = 'visits_stream_sample'
-
-
 #class TableNames(object):
-    #ad_info = 'ads_info'
+    #ad_info = 'ads_info_sample'
     #category = 'category'
     #location = 'location'
-    #phone_request = 'phone_requests_stream'
-    #search_info = 'search_info'
-    #train_search_stream = 'train_search_stream'
+    #phone_request = 'phone_requests_stream_sample'
+    #search_info = 'search_info_sample'
+    #train_search_stream = 'train_search_stream_sample'
     #test_search_stream = 'test_search_stream'
-    #user_info = 'user_info'
-    #visit = 'visits_stream'
+    #user_info = 'user_info_sample'
+    #visit = 'visits_stream_sample'
+
+
+class TableNames(object):
+    ad_info = 'ads_info'
+    category = 'category'
+    location = 'location'
+    phone_request = 'phone_requests_stream'
+    search_info = 'search_info'
+    train_search_stream = 'train_search_stream'
+    test_search_stream = 'test_search_stream'
+    user_info = 'user_info'
+    visit = 'visits_stream'
 
 
 Base = declarative_base()
@@ -116,6 +116,7 @@ class TrainSearchStream(SearchStream):
 class TestSearchStream(SearchStream):
     __tablename__ = TableNames.test_search_stream
 
+    id = Column(Integer)
     search_id = Column(Integer, ForeignKey('{}.search_id'.format(TableNames.search_info)), primary_key=True)
     ad_id = Column(Integer, ForeignKey('{}.ad_id'.format(TableNames.ad_info)), primary_key=True)
 

@@ -4,34 +4,7 @@ import json
 import sqlalchemy as sa
 
 from .globals import session
-from .models import AdInfo, Category, Location, SearchInfo, TrainSearchStream, UserInfo
-
-SearchCategory = sa.orm.aliased(Category)
-AdCategory = sa.orm.aliased(Category)
-
-
-COLUMNS = [
-    sa.cast(TrainSearchStream.is_click, sa.Integer).label('is_click'),
-    sa.literal_column('1', type_=sa.Integer).label('intercept'),
-    TrainSearchStream.ad_position,
-    TrainSearchStream.hist_ctr,
-    sa.cast(sa.func.extract('hour', sa.cast(SearchInfo.search_date, sa.DateTime)), sa.Integer).label('hour'),
-    # SearchInfo.search_query,
-    # SearchInfo.search_params.label('search_params'),
-    AdInfo.price,
-    # AdInfo.title.label('ad_title'),
-    AdInfo.params.label('ad_params'),
-    Location.level.label('loc_level'),
-    Location.region_id,
-    Location.city_id,
-    UserInfo.user_agent_id,
-    UserInfo.user_agent_family_id,
-    UserInfo.user_agent_osid,
-    UserInfo.user_device_id,
-    SearchCategory.category_id.label('search_cat_id'),
-    SearchCategory.level.label('search_cat_level'),
-    AdCategory.category_id.label('ad_cat_id'),
-]
+from .models import AdInfo, Category, Location, SearchInfo, TestSearchStream, TrainSearchStream, UserInfo
 
 
 def _json_converter(v):
@@ -142,11 +115,19 @@ class JsonFormatMixin(object):
 
 class RawDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
 
-    def sparse_iterator(self):
+    def get_field_names(self, part):
+        q = _make_query(part)
+        field_names = [c.name for c in q.statement.columns]
+        return field_names
+
+    def sparse_iterator(self, part):
         """
         Iterate through a dataset converting values to (name, value) tuples.
         """
-        field_names = get_field_names()
+
+        assert part in ('train', 'test')
+
+        field_names = self.get_field_names(part)
         for row in self.iterator():
             row = list(zip(field_names, row))
             yield row
@@ -156,12 +137,15 @@ class SparseDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
 
     def iterator(self, *args, **kwargs):
         """
-        Iterate over (x, y) pairs.
+        Iterate over (x, label) pairs.
+
+        label is either target for train or sample id for test.
         """
+
         it = super().iterator(*args, **kwargs)
         for row in it:
-            y = row.pop(0)[2]
-            yield row, y
+            label = row.pop(0)[2]
+            yield row, label
 
 
 def extract_data(offset=None, limit=None):
@@ -170,23 +154,63 @@ def extract_data(offset=None, limit=None):
         yield row
 
 
-def get_field_names():
-    field_names = [c.name for c in COLUMNS]
-    return field_names
+def _make_query(part, offset=None, limit=None):
 
+    AdCategory = sa.orm.aliased(Category)
+    SearchCategory = sa.orm.aliased(Category)
 
-def _make_query(offset=None, limit=None):
+    if part == 'train':
+        SearchStream = TrainSearchStream
+    elif part == 'test':
+        SearchStream = TestSearchStream
 
-    query = (session.query(TrainSearchStream)
-             .join(AdInfo, TrainSearchStream.ad_id == AdInfo.ad_id)
-             .join(SearchInfo, TrainSearchStream.search_id == SearchInfo.search_id)
-             .join(Location, SearchInfo.location_id == Location.location_id)
-             .join(UserInfo, SearchInfo.user_id == UserInfo.user_id)
+    query = (session.query(SearchStream)
+             .join(AdInfo, SearchStream.ad_id == AdInfo.ad_id)
+             .outerjoin(AdCategory, AdInfo.category_id == AdCategory.category_id)
+             .join(SearchInfo, SearchStream.search_id == SearchInfo.search_id)
              .join(SearchCategory, SearchInfo.category_id == SearchCategory.category_id)
-             .join(AdCategory, AdInfo.category_id == AdCategory.category_id)
-             .with_entities(*COLUMNS)
-             .filter(AdInfo.is_context == 1)
+             .join(Location, SearchInfo.location_id == Location.location_id)
+             .outerjoin(UserInfo, SearchInfo.user_id == UserInfo.user_id)
+             .filter(SearchStream.object_type == 3)
              .yield_per(1000))
+
+    columns = []
+
+    if SearchStream is TrainSearchStream:
+        columns.append(
+            sa.cast(SearchStream.is_click, sa.Integer).label('is_click')
+        )
+    else:
+        columns.append(SearchStream.id)
+
+    columns.extend([
+        sa.literal_column('1', type_=sa.Integer).label('intercept'),
+
+        SearchStream.ad_position,
+        SearchStream.hist_ctr,
+
+        sa.cast(sa.func.extract('hour', sa.cast(SearchInfo.search_date, sa.DateTime)), sa.Integer).label('hour'),
+        # SearchInfo.search_query,
+        # SearchInfo.search_params.label('search_params'),
+        SearchCategory.category_id.label('search_cat_id'),
+        SearchCategory.level.label('search_cat_level'),
+
+        AdInfo.price,
+        # AdInfo.title.label('ad_title'),
+        AdInfo.params.label('ad_params'),
+        sa.func.coalesce(AdCategory.category_id, -1).label('ad_cat_id'),
+
+        sa.func.coalesce(UserInfo.user_agent_id, -1).label('user_agent_id'),
+        sa.func.coalesce(UserInfo.user_agent_family_id, -1).label('user_agent_family_id'),
+        sa.func.coalesce(UserInfo.user_agent_osid, -1).label('user_agent_osid'),
+        sa.func.coalesce(UserInfo.user_device_id, -1).label('user_device_id'),
+
+        Location.level.label('loc_level'),
+        Location.region_id,
+        Location.city_id,
+    ])
+
+    query = query.with_entities(*columns)
 
     if offset:
         query = query.offset(offset)
@@ -194,3 +218,11 @@ def _make_query(offset=None, limit=None):
         query = query.limit(limit)
 
     return query
+
+
+def make_train_query(*args, **kwargs):
+    return _make_query('train', *args, **kwargs)
+
+
+def make_test_query(*args, **kwargs):
+    return _make_query('test', *args, **kwargs)

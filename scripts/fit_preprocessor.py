@@ -21,7 +21,7 @@ def main():
 
 
 def fit_preprocessor(source):
-    X_factory = lambda: RawDataset(source).sparse_iterator()
+    X_factory = lambda: RawDataset(source).sparse_iterator('train')
     preprocessor = Preprocessor()
     preprocessor.fit(X_factory)
     return preprocessor
