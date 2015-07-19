@@ -33,6 +33,7 @@ class Preprocessor(object):
         """
         return [
             self.one_hot_encoder,
+            self.hist_ctr_preprocessor,
         ]
 
     @property
@@ -46,6 +47,7 @@ class Preprocessor(object):
         self.text_feature_extractor = TextFeatureExtractor()
 
         self.one_hot_encoder = IterativeSparseOneHotEncoder(DATA['CATEGORICAL'])
+        self.hist_ctr_preprocessor = HistCtrPreprocessor()
 
     def fit(self, X_factory):
         """
@@ -199,11 +201,15 @@ class QuantileDiscretizer(PreprocessorAgent):
     def transform(self, row):
         for i, (field, value) in enumerate(row):
             if field == self.field:
-                transformed_value = 0
-                for j, p in enumerate(self.percentiles):
-                    if value < p:
-                        transformed_value = j
-                        break
+                if value is None:
+                    # Price is not specified for a small fraction of ads.
+                    # Set is to the median.
+                    transformed_value = int(len(self.percentiles) / 2)
+                else:
+                    for j, p in enumerate(self.percentiles):
+                        if value < p:
+                            transformed_value = j
+                            break
                     else:
                         transformed_value = len(self.percentiles)
                 row[i] = (self.transformed_field, transformed_value)
@@ -223,13 +229,14 @@ class CategoryFeatureExtractor(PreprocessorAgent):
             elif field == 'ad_cat_id':
                 ad_cat_id = value
 
-        search_cat = self.categories[search_cat_id]
-        ad_cat = self.categories[ad_cat_id]
+        search_cat = self.categories.get(search_cat_id, None)
+        ad_cat = self.categories.get(ad_cat_id, None)
 
-        if search_cat.category_id == ad_cat.category_id:
-            row.append(('search_ad_same_cat', 1))
-        if search_cat.parent_category_id == ad_cat.parent_category_id:
-            row.append(('search_ad_same_parent_cat', 1))
+        if search_cat and ad_cat:
+            if search_cat.category_id == ad_cat.category_id:
+                row.append(('search_ad_same_cat', 1))
+            if search_cat.parent_category_id == ad_cat.parent_category_id:
+                row.append(('search_ad_same_parent_cat', 1))
 
         return row
 
@@ -325,5 +332,19 @@ class ParamsIdExtractor(PreprocessorAgent):
             for key in ad_params:
                 value = int(key)
                 row.append(('ad_parameter', value))
+
+        return row
+
+
+class HistCtrPreprocessor(PreprocessorAgent):
+
+    def transform(self, row):
+        for i, (field, index, value) in enumerate(row):
+            if field == 'hist_ctr':
+                break
+        else:
+            raise RuntimeError('A row does not contain hist_ctr')
+
+        row.pop(i)
 
         return row
