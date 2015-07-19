@@ -1,5 +1,4 @@
 import collections
-import copy
 
 from scipy.special import expit as sigmoid
 
@@ -23,8 +22,7 @@ class OnlineLogisticRegression(object):
 
     def fit(self, data, alpha=0.01):
 
-        field_weights_template = collections.defaultdict(lambda: 0)
-        self.weights = collections.defaultdict(lambda: copy.copy(field_weights_template))
+        self.weights = collections.defaultdict(self._weights_template)
         self.intercept_weight = 0
 
         for i, (x, y) in enumerate(data, 1):
@@ -38,6 +36,9 @@ class OnlineLogisticRegression(object):
                 print('Processed {} rows'.format(i), end='\r')
 
         print('Processed {} rows'.format(i))
+
+    def _weights_template(self):
+        return collections.defaultdict(int)
 
     def predict(self, x):
         z = 0

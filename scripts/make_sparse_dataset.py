@@ -13,19 +13,20 @@ def main():
     parser.add_argument('source_file', help='Name of a file containing the dataset')
     parser.add_argument('target_file', help='Gzipped text file containing the result')
     parser.add_argument('preprocessor', help='Pickled preprocessor')
+    parser.add_argument('--type', choices=['train', 'test'], default='train')
 
     args = parser.parse_args()
 
     with open(args.preprocessor, 'rb') as f:
         preprocessor = pickle.load(f)
 
-    transform(args.source_file, args.target_file, preprocessor)
+    transform(args.source_file, args.target_file, preprocessor, args.type)
 
 
-def transform(src, dst, preprocessor):
+def transform(src, dst, preprocessor, part):
     with RawDataset(src) as src_ds:
         with SparseDataset(dst, 'w') as dst_ds:
-            for (i, row) in enumerate(src_ds.sparse_iterator()):
+            for (i, row) in enumerate(src_ds.sparse_iterator(part)):
                 transformed_row = preprocessor.transform(row)
                 dst_ds.append(transformed_row)
 

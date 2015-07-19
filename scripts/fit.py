@@ -26,6 +26,8 @@ def main():
     with open(args.dst, 'wb') as f:
         pickle.dump(model, f)
 
+    print('Model saved to {}'.format(args.dst))
+
     print_summary(model)
 
 
