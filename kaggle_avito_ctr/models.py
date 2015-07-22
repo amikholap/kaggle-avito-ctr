@@ -8,12 +8,13 @@ from sqlalchemy.orm import backref, relationship
     #ad_info = 'ads_info_sample'
     #category = 'category'
     #location = 'location'
-    #phone_request = 'phone_requests_stream_sample'
+    #phone_request = 'phone_requests_stream'
     #search_info = 'search_info_sample'
     #train_search_stream = 'train_search_stream_sample'
+    #val_search_stream = 'eval_search_stream'
     #test_search_stream = 'test_search_stream'
     #user_info = 'user_info_sample'
-    #visit = 'visits_stream_sample'
+    #visit = 'visits_stream'
 
 
 class TableNames(object):
@@ -22,7 +23,8 @@ class TableNames(object):
     location = 'location'
     phone_request = 'phone_requests_stream'
     search_info = 'search_info'
-    train_search_stream = 'train_search_stream'
+    train_search_stream = 'train_search_stream_last_week'
+    val_search_stream = 'eval_search_stream'
     test_search_stream = 'test_search_stream'
     user_info = 'user_info'
     visit = 'visits_stream'
@@ -41,6 +43,8 @@ class AdInfo(Base):
     price = Column(Float)
     title = Column(String(140))
     is_context = Column(Integer)
+    n_impressions = Column(Integer)
+    n_clicks = Column(Integer)
 
     location = relationship('Location', backref=backref('ads'))
     category = relationship('Category', backref=backref('ads'))
@@ -102,15 +106,30 @@ class SearchStream(Base):
     hist_ctr = Column(Float)
 
 
-class TrainSearchStream(SearchStream):
+class LabeledSearchStream(SearchStream):
+    __abstract__ = True
+
+    is_click = Column(BIT)
+
+
+class TrainSearchStream(LabeledSearchStream):
     __tablename__ = TableNames.train_search_stream
 
     search_id = Column(Integer, ForeignKey('{}.search_id'.format(TableNames.search_info)), primary_key=True)
     ad_id = Column(Integer, ForeignKey('{}.ad_id'.format(TableNames.ad_info)), primary_key=True)
-    is_click = Column(BIT)
 
     search = relationship('SearchInfo', backref=backref('impressions_train'))
     ad = relationship('AdInfo', backref=backref('impressions_train'))
+
+
+class ValSearchStream(LabeledSearchStream):
+    __tablename__ = TableNames.val_search_stream
+
+    search_id = Column(Integer, ForeignKey('{}.search_id'.format(TableNames.search_info)), primary_key=True)
+    ad_id = Column(Integer, ForeignKey('{}.ad_id'.format(TableNames.ad_info)), primary_key=True)
+
+    search = relationship('SearchInfo', backref=backref('impressions_val'))
+    ad = relationship('AdInfo', backref=backref('impressions_val'))
 
 
 class TestSearchStream(SearchStream):
@@ -132,6 +151,9 @@ class UserInfo(Base):
     user_agent_osid = Column(SmallInteger)
     user_device_id = Column(SmallInteger)
     user_agent_family_id = Column(SmallInteger)
+
+    n_context_impressions = Column(Integer)
+    n_context_clicks = Column(Integer)
 
 
 class Visit(Base):

@@ -23,7 +23,6 @@ class OnlineLogisticRegression(object):
     def fit(self, data, alpha=0.01):
 
         self.weights = collections.defaultdict(self._weights_template)
-        self.intercept_weight = 0
 
         for i, (x, y) in enumerate(data, 1):
             y_hat = self.predict(x)

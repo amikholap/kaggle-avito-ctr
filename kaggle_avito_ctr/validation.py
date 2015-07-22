@@ -7,6 +7,11 @@ from .extraction import SparseDataset
 _logger = logging.getLogger(__name__)
 
 
+def evaluate(model, data):
+    score = logloss(model, data)
+    return score
+
+
 def cv(clf, filename, n_folds=5, num_samples=None):
     scores = []
 

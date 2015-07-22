@@ -126,7 +126,7 @@ CREATE TABLE search_info
 	search_params_raw VARCHAR(175)
 );
 COPY search_info (search_id, search_date, ip_id , user_id, is_user_logged_on, search_query, location_id, category_id, search_params) FROM '/avito/data/SearchInfo.tsv' CSV DELIMITER E'\t' HEADER;
-UPDATE search_info SET search_params = regexp_replace(regexp_replace(regexp_replace(regexp_replace(search_params_raw, E'\'', E'"', 'g'), ', (\w+)"(?=[\w," ]*\])', ', "\1"', 'g'), '(:"\w+)"(\w+"[,}])', E'\\1\'\\2'), '([\d\w]+):', '"\1":', 'g')::JSON;
+UPDATE search_info SET search_params = regexp_replace(regexp_replace(regexp_replace(regexp_replace(search_params_raw, E'\'', E'"', 'g'), ', (\w+)"(?=[\w," ]*\])', ', "\1"', 'g'), '(:"\w+)"(\w+"[,}])', E'\\1\'\\2'), '([\d\w]+):', '"\1":', 'g')::json;
 
 ALTER TABLE search_info ADD CONSTRAINT pk_search_info PRIMARY KEY (search_id);
 CLUSTER search_info USING pk_search_info;

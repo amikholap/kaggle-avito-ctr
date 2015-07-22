@@ -5,15 +5,17 @@ import pickle
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from kaggle_avito_ctr.extraction import RawDataset, SparseDataset, make_test_query, make_train_query
+from kaggle_avito_ctr.extraction import RawDataset, SparseDataset, make_test_query, make_train_query, make_val_query
+from kaggle_avito_ctr.online_lr import OnlineLogisticRegression
 from kaggle_avito_ctr.preprocessing import Preprocessor
+from kaggle_avito_ctr.validation import evaluate
 
 
 def main():
     parser = init_parser()
     args = parser.parse_args()
 
-    do_export = do_fitpp = do_process = dofit = docv = False
+    do_export = do_fitpp = do_process = do_fit = do_eval = False
 
     if args.export:
         do_export = True
@@ -21,10 +23,12 @@ def main():
         do_fitpp = True
     elif args.process:
         do_process = True
-    elif args.cv:
-        do_cv = True
+    elif args.fit:
+        do_fit = True
+    elif args.eval:
+        do_eval = True
     else:
-        do_export = do_fitpp = do_process = dofit = docv = True
+        do_export = do_fitpp = do_process = do_fit = do_eval = True
 
         if args.noexport:
             do_export = False
@@ -38,16 +42,16 @@ def main():
         if args.nofit:
             do_fit = False
 
-        if args.nocv:
-            do_cv = False
-        
+        if args.noeval:
+            do_eval = False
+
     if do_export:
         print('Exporting dataset to {}'.format(args.raw_dataset))
         export(args.raw_dataset, args.format)
     else:
         print('Skipping dataset export')
 
-    if do_fitpp:
+    if args.format == 'train' and do_fitpp:
         print('Fitting preprocessor to {}'.format(args.preprocessor))
         preprocessor = fit_preprocessor(args.raw_dataset)
         serialize(preprocessor, args.preprocessor)
@@ -61,6 +65,21 @@ def main():
     else:
         print('Skipping raw dataset preprocessing')
 
+    if args.format == 'train' and do_fit:
+        print('Fitting model {} to dataset {}'.format(args.model, args.dataset))
+        model = fit(args.dataset)
+        serialize(model, args.model)
+    else:
+        print('Skipping model fitting')
+        model = deserialize(args.model)
+    print_model_summary(model)
+
+    if args.format == 'eval' and do_eval:
+        print('Evaluating model {}'.format(args.model))
+        evaluate_model(model, args.dataset)
+    else:
+        print('Skipping model evaluation')
+
 
 def init_parser():
     parser = argparse.ArgumentParser()
@@ -70,19 +89,19 @@ def init_parser():
     parser.add_argument('preprocessor', help='Name of a file containing pickled preprocessor')
     parser.add_argument('model', help='Name of a file containing pickled model')
 
-    parser.add_argument('--format', choices=['train', 'test'], help='Train or test data format')
+    parser.add_argument('--format', choices=['train', 'eval', 'test'], help='Train/validation/test data format')
 
     parser.add_argument('--noexport', action='store_true', help='Skip DB export')
     parser.add_argument('--nofitpp', action='store_true', help='Skip preprocessor fitting')
     parser.add_argument('--noprocess', action='store_true', help='Skip dataset preprocessing')
     parser.add_argument('--nofit', action='store_true', help='Skip model training')
-    parser.add_argument('--nocv', action='store_true', help='Skip model validation')
+    parser.add_argument('--noeval', action='store_true', help='Skip model evaluation')
 
     parser.add_argument('--export', action='store_true', help='Perform only DB export')
     parser.add_argument('--fitpp', action='store_true', help='Perform only preprocessor fitting')
     parser.add_argument('--process', action='store_true', help='Perform only dataset preprocessing')
     parser.add_argument('--fit', action='store_true', help='Perform only model training')
-    parser.add_argument('--cv', action='store_true', help='Perform only model validation')
+    parser.add_argument('--eval', action='store_true', help='Perform only model evaluation')
 
     return parser
 
@@ -105,6 +124,8 @@ def export(dst, part):
             q = make_train_query()
         elif part == 'test':
             q = make_test_query()
+        elif part == 'eval':
+            q = make_val_query()
 
         for row in q:
             ds.append(row)
@@ -128,6 +149,27 @@ def transform(src, dst, preprocessor, part):
                     print('Processed {} rows'.format(i), end='\r')
 
     print()
+
+
+def fit(dataset):
+    model = OnlineLogisticRegression()
+    with SparseDataset(dataset) as X:
+        model.fit(X.iterator())
+    return model
+
+
+def print_model_summary(model):
+    print('Top important features:')
+    print('{:25} | {:5} | {:10}'.format('feature', 'index', 'weight'))
+    print('-' * 50)
+    for f, i, w in model.weights_flat[-10:]:
+        print('{:25} | {:5} | {:10.5}'.format(f, i, w))
+
+
+def evaluate_model(model, dataset_filename):
+    with SparseDataset(dataset_filename) as dataset:
+        score = evaluate(model, dataset.iterator())
+    print('Evaluation score is {:.5}'.format(score))
 
 
 if __name__ == '__main__':

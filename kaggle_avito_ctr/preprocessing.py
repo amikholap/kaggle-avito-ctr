@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 import string
 
@@ -20,6 +21,8 @@ class Preprocessor(object):
         A list of the first pass agents.
         """
         return [
+            self.ad_ctr_preprocessor,
+            self.user_ctr_preprocessor,
             self.category_feature_extractor,
             self.price_discretizer,
             self.params_id_extractor,
@@ -33,7 +36,6 @@ class Preprocessor(object):
         """
         return [
             self.one_hot_encoder,
-            self.hist_ctr_preprocessor,
         ]
 
     @property
@@ -41,13 +43,16 @@ class Preprocessor(object):
         return self.agents1 + self.agents2
 
     def __init__(self):
+        self.ad_ctr_preprocessor = AdCtrPreprocessor()
+        self.user_ctr_preprocessor = UserCtrPreprocessor()
         self.category_feature_extractor = CategoryFeatureExtractor()
         self.price_discretizer = QuantileDiscretizer('price', 20)
         self.params_id_extractor = ParamsIdExtractor()
         self.text_feature_extractor = TextFeatureExtractor()
 
         self.one_hot_encoder = IterativeSparseOneHotEncoder(DATA['CATEGORICAL'])
-        self.hist_ctr_preprocessor = HistCtrPreprocessor()
+
+        self.fields_to_remove = []
 
     def fit(self, X_factory):
         """
@@ -78,14 +83,31 @@ class Preprocessor(object):
 
             fitted_agents.extend(agents)
 
+        self.fields_to_remove = {f for agent in self.agents for f in agent.replaced_fields}
+
     def transform(self, row):
         for agent in self.agents:
             row = agent.transform(row)
+        row = [item for item in row if item[0] not in self.fields_to_remove]
         return row
 
 
 class PreprocessorAgent(object):
     """Base class for transformers compatible with Preprocessor."""
+
+    _fields = []
+    _field_indexes = None
+
+    replaced_fields = []
+
+    @property
+    def replaced_fields(self):
+        """
+        Fields that should be removed after processing.
+
+        Defaults to preprocessor's source fields.
+        """
+        return self._fields
 
     def prepare_fit(self):
         pass
@@ -101,6 +123,23 @@ class PreprocessorAgent(object):
         for row in X:
             self.fit_row(row)
         self.finish_fit()
+
+    def _get_fields(self, row):
+        field_values = []
+
+        if not self._field_indexes or any([index is None for index in self._field_indexes]):
+            self._field_indexes = [None] * len(self._fields)
+            for i, item in enumerate(row):
+                for j, fieldname in enumerate(self._fields):
+                    if item[0] == fieldname:
+                        self._field_indexes[j] = i
+                        break
+
+        for i, index in enumerate(self._field_indexes):
+            value = row[index][-1]
+            field_values.append(value)
+
+        return field_values
 
 
 class IterativeSparseOneHotEncoder(PreprocessorAgent):
@@ -176,6 +215,9 @@ class QuantileDiscretizer(PreprocessorAgent):
 
     def __init__(self, field, q):
         self.field = field
+
+        self._fields = [self.field]
+
         self.transformed_field = '{}_percentile'.format(self.field)
         self.q = np.linspace(0, 100, q + 3)[1:-1]
 
@@ -187,11 +229,9 @@ class QuantileDiscretizer(PreprocessorAgent):
         if self._values.size <= self._index:
             self._values.resize(int(self._values.size * 1.5))
 
-        for (field,  value) in row:
-            if field == self.field:
-                self._values[self._index] = value
-                self._index += 1
-                break
+        value = self._get_fields(row)[0]
+        self._values[self._index] = value
+        self._index += 1
 
     def finish_fit(self):
         self.percentiles = np.percentile(self._values[:self._index], self.q)[1:-1]
@@ -199,35 +239,31 @@ class QuantileDiscretizer(PreprocessorAgent):
         del self._values
 
     def transform(self, row):
-        for i, (field, value) in enumerate(row):
-            if field == self.field:
-                if value is None:
-                    # Price is not specified for a small fraction of ads.
-                    # Set is to the median.
-                    transformed_value = int(len(self.percentiles) / 2)
-                else:
-                    for j, p in enumerate(self.percentiles):
-                        if value < p:
-                            transformed_value = j
-                            break
-                    else:
-                        transformed_value = len(self.percentiles)
-                row[i] = (self.transformed_field, transformed_value)
-                break
+        value = self._get_fields(row)[0]
+        if value is None:
+            # Price is not specified for a small fraction of ads.
+            # Set is to the median.
+            transformed_value = int(len(self.percentiles) / 2)
+        else:
+            for j, p in enumerate(self.percentiles):
+                if value < p:
+                    transformed_value = j
+                    break
+            else:
+                transformed_value = len(self.percentiles)
+        row.append((self.transformed_field, transformed_value))
         return row
 
 
 class CategoryFeatureExtractor(PreprocessorAgent):
 
+    _fields = ['search_cat_id', 'ad_cat_id']
+
     def __init__(self):
         self.categories = {c.category_id: c for c in session.query(Category)}
 
     def transform(self, row):
-        for (field, value) in row:
-            if field == 'search_cat_id':
-                search_cat_id = value
-            elif field == 'ad_cat_id':
-                ad_cat_id = value
+        search_cat_id, ad_cat_id = self._get_fields(row)
 
         search_cat = self.categories.get(search_cat_id, None)
         ad_cat = self.categories.get(ad_cat_id, None)
@@ -319,14 +355,10 @@ class TextFeatureExtractor(PreprocessorAgent):
 
 class ParamsIdExtractor(PreprocessorAgent):
 
-    def transform(self, row):
-        for i, (field, value) in enumerate(row):
-            if field == 'ad_params':
-                break
-        else:
-            raise RuntimeError('A row does not contain ad_params')
+    _fields = ['ad_params']
 
-        ad_params = row.pop(i)[1]
+    def transform(self, row):
+        ad_params = self._get_fields(row)[0]
 
         if ad_params:
             for key in ad_params:
@@ -336,15 +368,85 @@ class ParamsIdExtractor(PreprocessorAgent):
         return row
 
 
-class HistCtrPreprocessor(PreprocessorAgent):
+class CtrPreprocessor(PreprocessorAgent):
+    """
+    Base for ctr preprocessors.
+
+    Assumes that subclasses specify two fields for number of impressions
+    and number of clicks respectively.
+
+    Calculates average ctr for objects with #impressions >0.
+    """
+
+    def get_ctr(self, n_impressions, n_clicks):
+        """Calculate smoothed CTR."""
+        return n_clicks / (n_impressions + 10)
+
+    def prepare_fit(self):
+        self._n_observed_objects = 0
+        self._ctr_accum = 0
+
+    def fit_row(self, row):
+        n_impressions, n_clicks = self._get_fields(row)
+
+        if n_impressions != 0:
+            ctr = self.get_ctr(n_impressions, n_clicks)
+            self._n_observed_objects += 1
+            self._ctr_accum += ctr
+
+    def finish_fit(self):
+        self.avg_ctr = self._ctr_accum / self._n_observed_objects
+
+
+class UserCtrPreprocessor(CtrPreprocessor):
+
+    _fields = ['user_n_impressions', 'user_n_clicks']
 
     def transform(self, row):
-        for i, (field, index, value) in enumerate(row):
-            if field == 'hist_ctr':
-                break
-        else:
-            raise RuntimeError('A row does not contain hist_ctr')
+        n_impressions, n_clicks = self._get_fields(row)
 
-        row.pop(i)
+        if n_impressions > 0:
+            user_ctr = self.get_ctr(n_impressions, n_clicks)
+            new_user = 0
+        else:
+            user_ctr = self.avg_ctr
+            new_user = 1
+
+        user_ctr_root = math.sqrt(user_ctr)
+        user_ctr_pow2 = user_ctr ** 2
+        user_ctr_pow3 = user_ctr ** 3
+
+        row.append(('user_ctr', user_ctr))
+        row.append(('user_ctr_root', user_ctr_root))
+        row.append(('user_ctr_pow2', user_ctr_pow2))
+        row.append(('user_ctr_pow3', user_ctr_pow3))
+        row.append(('new_user', new_user))
+
+        return row
+
+
+class AdCtrPreprocessor(CtrPreprocessor):
+
+    _fields = ['ad_n_impressions', 'ad_n_clicks']
+
+    def transform(self, row):
+        n_impressions, n_clicks = self._get_fields(row)
+
+        if n_impressions > 0:
+            ad_ctr = self.get_ctr(n_impressions, n_clicks)
+            new_ad = 0
+        else:
+            ad_ctr = self.avg_ctr
+            new_ad = 1
+
+        ad_ctr_root = math.sqrt(ad_ctr)
+        ad_ctr_pow2 = ad_ctr ** 2
+        ad_ctr_pow3 = ad_ctr ** 3
+
+        row.append(('ad_ctr', ad_ctr))
+        row.append(('ad_ctr_root', ad_ctr_root))
+        row.append(('ad_ctr_pow2', ad_ctr_pow2))
+        row.append(('ad_ctr_pow3', ad_ctr_pow3))
+        row.append(('new_ad', new_ad))
 
         return row

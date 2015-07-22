@@ -4,7 +4,8 @@ import json
 import sqlalchemy as sa
 
 from .globals import session
-from .models import AdInfo, Category, Location, SearchInfo, TestSearchStream, TrainSearchStream, UserInfo
+from .models import (AdInfo, Category, Location, SearchInfo, TestSearchStream,
+                     TrainSearchStream, ValSearchStream, UserInfo)
 
 
 def _json_converter(v):
@@ -125,7 +126,7 @@ class RawDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
         Iterate through a dataset converting values to (name, value) tuples.
         """
 
-        assert part in ('train', 'test')
+        assert part in ('train', 'eval', 'test')
 
         field_names = self.get_field_names(part)
         for row in self.iterator():
@@ -161,6 +162,8 @@ def _make_query(part, offset=None, limit=None):
 
     if part == 'train':
         SearchStream = TrainSearchStream
+    elif part == 'eval':
+        SearchStream = ValSearchStream
     elif part == 'test':
         SearchStream = TestSearchStream
 
@@ -176,7 +179,7 @@ def _make_query(part, offset=None, limit=None):
 
     columns = []
 
-    if SearchStream is TrainSearchStream:
+    if hasattr(SearchStream, 'is_click'):
         columns.append(
             sa.cast(SearchStream.is_click, sa.Integer).label('is_click')
         )
@@ -187,7 +190,7 @@ def _make_query(part, offset=None, limit=None):
         sa.literal_column('1', type_=sa.Integer).label('intercept'),
 
         SearchStream.ad_position,
-        SearchStream.hist_ctr,
+        # SearchStream.hist_ctr,
 
         sa.cast(sa.func.extract('hour', sa.cast(SearchInfo.search_date, sa.DateTime)), sa.Integer).label('hour'),
         # SearchInfo.search_query,
@@ -199,11 +202,15 @@ def _make_query(part, offset=None, limit=None):
         # AdInfo.title.label('ad_title'),
         AdInfo.params.label('ad_params'),
         sa.func.coalesce(AdCategory.category_id, -1).label('ad_cat_id'),
+        sa.func.coalesce(AdInfo.n_impressions, 0).label('ad_n_impressions'),
+        sa.func.coalesce(AdInfo.n_clicks, 0).label('ad_n_clicks'),
 
         sa.func.coalesce(UserInfo.user_agent_id, -1).label('user_agent_id'),
         sa.func.coalesce(UserInfo.user_agent_family_id, -1).label('user_agent_family_id'),
         sa.func.coalesce(UserInfo.user_agent_osid, -1).label('user_agent_osid'),
         sa.func.coalesce(UserInfo.user_device_id, -1).label('user_device_id'),
+        sa.func.coalesce(UserInfo.n_context_impressions, 0).label('user_n_impressions'),
+        sa.func.coalesce(UserInfo.n_context_clicks, 0).label('user_n_clicks'),
 
         Location.level.label('loc_level'),
         Location.region_id,
@@ -226,3 +233,7 @@ def make_train_query(*args, **kwargs):
 
 def make_test_query(*args, **kwargs):
     return _make_query('test', *args, **kwargs)
+
+
+def make_val_query(*args, **kwargs):
+    return _make_query('eval', *args, **kwargs)
