@@ -121,7 +121,7 @@ class RawDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
         field_names = [c.name for c in q.statement.columns]
         return field_names
 
-    def sparse_iterator(self, part):
+    def sparse_iterator(self, part, *args, **kwargs):
         """
         Iterate through a dataset converting values to (name, value) tuples.
         """
@@ -129,7 +129,7 @@ class RawDataset(JsonFormatMixin, GzipCompressorMixin, Dataset):
         assert part in ('train', 'eval', 'test')
 
         field_names = self.get_field_names(part)
-        for row in self.iterator():
+        for row in self.iterator(*args, **kwargs):
             row = list(zip(field_names, row))
             yield row
 
@@ -155,10 +155,7 @@ def extract_data(offset=None, limit=None):
         yield row
 
 
-def _make_query(part, offset=None, limit=None):
-
-    AdCategory = sa.orm.aliased(Category)
-    SearchCategory = sa.orm.aliased(Category)
+def _make_query(part, offset=None, limit=None, p_sample=1):
 
     if part == 'train':
         SearchStream = TrainSearchStream
@@ -166,6 +163,11 @@ def _make_query(part, offset=None, limit=None):
         SearchStream = ValSearchStream
     elif part == 'test':
         SearchStream = TestSearchStream
+
+    AdCategory = sa.orm.aliased(Category)
+    SearchCategory = sa.orm.aliased(Category)
+
+    search_date = sa.func.extract('epoch', SearchInfo.search_date).label('search_date')
 
     query = (session.query(SearchStream)
              .join(AdInfo, SearchStream.ad_id == AdInfo.ad_id)
@@ -187,17 +189,19 @@ def _make_query(part, offset=None, limit=None):
         columns.append(SearchStream.id)
 
     columns.extend([
-        sa.literal_column('1', type_=sa.Integer).label('intercept'),
+        sa.literal(1, type_=sa.Integer).label('intercept'),
 
         SearchStream.ad_position,
-        # SearchStream.hist_ctr,
+        SearchStream.hist_ctr,
 
         sa.cast(sa.func.extract('hour', sa.cast(SearchInfo.search_date, sa.DateTime)), sa.Integer).label('hour'),
+        search_date,
         # SearchInfo.search_query,
         # SearchInfo.search_params.label('search_params'),
         SearchCategory.category_id.label('search_cat_id'),
         SearchCategory.level.label('search_cat_level'),
 
+        AdInfo.ad_id,
         AdInfo.price,
         # AdInfo.title.label('ad_title'),
         AdInfo.params.label('ad_params'),
@@ -205,12 +209,16 @@ def _make_query(part, offset=None, limit=None):
         sa.func.coalesce(AdInfo.n_impressions, 0).label('ad_n_impressions'),
         sa.func.coalesce(AdInfo.n_clicks, 0).label('ad_n_clicks'),
 
+        # Not all users are present in user_info.
+        sa.func.coalesce(UserInfo.user_id, -1).label('user_id'),
         sa.func.coalesce(UserInfo.user_agent_id, -1).label('user_agent_id'),
         sa.func.coalesce(UserInfo.user_agent_family_id, -1).label('user_agent_family_id'),
         sa.func.coalesce(UserInfo.user_agent_osid, -1).label('user_agent_osid'),
         sa.func.coalesce(UserInfo.user_device_id, -1).label('user_device_id'),
         sa.func.coalesce(UserInfo.n_context_impressions, 0).label('user_n_impressions'),
         sa.func.coalesce(UserInfo.n_context_clicks, 0).label('user_n_clicks'),
+        sa.func.coalesce(UserInfo.n_visits, 0).label('user_n_visits'),
+        sa.func.coalesce(UserInfo.n_phone_requests, 0).label('user_n_phone_requests'),
 
         Location.level.label('loc_level'),
         Location.region_id,
@@ -218,6 +226,11 @@ def _make_query(part, offset=None, limit=None):
     ])
 
     query = query.with_entities(*columns)
+
+    query = query.order_by(search_date.asc())
+
+    # Probabilistic inclusion.
+    query = query.filter(sa.func.random() < p_sample)
 
     if offset:
         query = query.offset(offset)

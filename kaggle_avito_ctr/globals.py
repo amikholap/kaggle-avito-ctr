@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 import sqlalchemy as sa
@@ -5,6 +6,22 @@ import sqlalchemy.orm  # noqa
 
 
 DATA = {
+    # First day of usable ciunters.
+    'COUNTER_START_DATE': datetime.datetime(2015, 5, 3).timestamp(),
+
+    'CONTINUOUS': {
+        'intercept',
+        'user_n_visits',
+        'user_n_phone_requests',
+        'ad_ctr_scaled',
+        'ad_ctr_root_scaled',
+        'ad_ctr_pow2_scaled',
+        'ad_ctr_pow3_scaled',
+        'user_ctr_scaled',
+        'user_ctr_root_scaled',
+        'user_ctr_pow2_scaled',
+        'user_ctr_pow3_scaled',
+    },
     'CATEGORICAL': {
         'hour',
         'user_agent_id',
@@ -19,6 +36,7 @@ DATA = {
         'ad_cat_id',
         'ad_parameter',
         'price_percentile',
+        'hist_ctr_percentile',
     },
 }
 

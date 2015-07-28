@@ -47,7 +47,7 @@ def main():
 
     if do_export:
         print('Exporting dataset to {}'.format(args.raw_dataset))
-        export(args.raw_dataset, args.format)
+        export(args.raw_dataset, args.format, args.p_sample)
     else:
         print('Skipping dataset export')
 
@@ -74,7 +74,7 @@ def main():
         model = deserialize(args.model)
     print_model_summary(model)
 
-    if args.format == 'eval' and do_eval:
+    if args.format != 'test' and do_eval:
         print('Evaluating model {}'.format(args.model))
         evaluate_model(model, args.dataset)
     else:
@@ -103,6 +103,9 @@ def init_parser():
     parser.add_argument('--fit', action='store_true', help='Perform only model training')
     parser.add_argument('--eval', action='store_true', help='Perform only model evaluation')
 
+    parser.add_argument('--p_sample', type=float, default=1.0,
+                        help='Probability to include each row from the original dataset.')
+
     return parser
 
 
@@ -117,15 +120,19 @@ def deserialize(filename):
     return obj
 
 
-def export(dst, part):
+def export(dst, part, p_sample):
+
+    kwargs = {
+        'p_sample': p_sample,
+    }
 
     with RawDataset(dst, 'w') as ds:
         if part == 'train':
-            q = make_train_query()
+            q = make_train_query(**kwargs)
         elif part == 'test':
-            q = make_test_query()
+            q = make_test_query(**kwargs)
         elif part == 'eval':
-            q = make_val_query()
+            q = make_val_query(**kwargs)
 
         for row in q:
             ds.append(row)

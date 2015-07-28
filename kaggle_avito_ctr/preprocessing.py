@@ -23,8 +23,8 @@ class Preprocessor(object):
         return [
             self.ad_ctr_preprocessor,
             self.user_ctr_preprocessor,
-            self.category_feature_extractor,
             self.price_discretizer,
+            self.hist_ctr_discretizer,
             self.params_id_extractor,
             # self.text_feature_extractor,
         ]
@@ -35,6 +35,8 @@ class Preprocessor(object):
         A list of the second pass agents.
         """
         return [
+            self.category_feature_extractor,
+            self.rational_normalizer,
             self.one_hot_encoder,
         ]
 
@@ -47,10 +49,26 @@ class Preprocessor(object):
         self.user_ctr_preprocessor = UserCtrPreprocessor()
         self.category_feature_extractor = CategoryFeatureExtractor()
         self.price_discretizer = QuantileDiscretizer('price', 20)
+        self.hist_ctr_discretizer = QuantileDiscretizer('hist_ctr', 20)
         self.params_id_extractor = ParamsIdExtractor()
         self.text_feature_extractor = TextFeatureExtractor()
 
         self.one_hot_encoder = IterativeSparseOneHotEncoder(DATA['CATEGORICAL'])
+        self.rational_normalizer = RationalNormalizer([
+            'user_n_visits',
+            'user_n_phone_requests',
+            'ad_ctr',
+            'ad_ctr_root',
+            'ad_ctr_pow2',
+            'ad_ctr_pow3',
+            'user_ctr',
+            'user_ctr_root',
+            'user_ctr_pow2',
+            'user_ctr_pow3',
+        ])
+
+        self.poly2_mixer = Poly2Mixer(['ad_cat_id', 'ad_parameter', 'city_id', 'price_percentile',
+                                       'user_agent_family_id', 'user_device_id'])
 
         self.fields_to_remove = []
 
@@ -89,6 +107,7 @@ class Preprocessor(object):
         for agent in self.agents:
             row = agent.transform(row)
         row = [item for item in row if item[0] not in self.fields_to_remove]
+        # row = self.poly2_mixer.mix(row)
         return row
 
 
@@ -209,6 +228,39 @@ class IterativeSparseOneHotEncoder(PreprocessorAgent):
             transformed_row.append(triplet)
 
         return transformed_row
+
+
+class RationalNormalizer(PreprocessorAgent):
+
+    def __init__(self, fields):
+        self._fields = fields
+        self._transformed_fields = ['{}_scaled'.format(f) for f in self._fields]
+
+    def prepare_fit(self):
+        n_fields = len(self._fields)
+        self._n_observations = np.zeros(n_fields, dtype=np.int64)
+        self._accums = np.zeros(n_fields, dtype=np.float128)
+        self._square_accums = np.zeros(n_fields, dtype=np.float128)
+
+    def fit_row(self, row):
+        values = np.array(self._get_fields(row), dtype=np.float128)
+        self._n_observations += 1
+        self._accums += values
+        self._square_accums += np.power(values, 2)
+
+    def finish_fit(self):
+        self.averages = self._accums / self._n_observations
+        square_averages = self._square_accums / self._n_observations
+        self.stds = np.sqrt(square_averages - np.power(self.averages, 2))
+
+    def transform(self, row):
+        values = np.array(self._get_fields(row), dtype=np.float128)
+        scaled_values = (values - self.averages) / self.stds
+        # json module can't encode numpy.float128.
+        scaled_values = scaled_values.astype(np.float64, copy=False)
+        for name, scaled_value in zip(self._transformed_fields, scaled_values):
+            row.append((name, scaled_value))
+        return row
 
 
 class QuantileDiscretizer(PreprocessorAgent):
@@ -387,9 +439,9 @@ class CtrPreprocessor(PreprocessorAgent):
         self._ctr_accum = 0
 
     def fit_row(self, row):
-        n_impressions, n_clicks = self._get_fields(row)
+        search_date, n_impressions, n_clicks = self._get_fields(row)
 
-        if n_impressions != 0:
+        if search_date > DATA['COUNTER_START_DATE'] and n_impressions != 0:
             ctr = self.get_ctr(n_impressions, n_clicks)
             self._n_observed_objects += 1
             self._ctr_accum += ctr
@@ -400,12 +452,12 @@ class CtrPreprocessor(PreprocessorAgent):
 
 class UserCtrPreprocessor(CtrPreprocessor):
 
-    _fields = ['user_n_impressions', 'user_n_clicks']
+    _fields = ['search_date', 'user_n_impressions', 'user_n_clicks']
 
     def transform(self, row):
-        n_impressions, n_clicks = self._get_fields(row)
+        search_date, n_impressions, n_clicks = self._get_fields(row)
 
-        if n_impressions > 0:
+        if search_date > DATA['COUNTER_START_DATE'] and n_impressions > 0:
             user_ctr = self.get_ctr(n_impressions, n_clicks)
             new_user = 0
         else:
@@ -427,12 +479,12 @@ class UserCtrPreprocessor(CtrPreprocessor):
 
 class AdCtrPreprocessor(CtrPreprocessor):
 
-    _fields = ['ad_n_impressions', 'ad_n_clicks']
+    _fields = ['search_date', 'ad_n_impressions', 'ad_n_clicks']
 
     def transform(self, row):
-        n_impressions, n_clicks = self._get_fields(row)
+        search_date, n_impressions, n_clicks = self._get_fields(row)
 
-        if n_impressions > 0:
+        if search_date > DATA['COUNTER_START_DATE'] and n_impressions > 0:
             ad_ctr = self.get_ctr(n_impressions, n_clicks)
             new_ad = 0
         else:
@@ -448,5 +500,47 @@ class AdCtrPreprocessor(CtrPreprocessor):
         row.append(('ad_ctr_pow2', ad_ctr_pow2))
         row.append(('ad_ctr_pow3', ad_ctr_pow3))
         row.append(('new_ad', new_ad))
+
+        return row
+
+
+class HistCtrPreprocessor(CtrPreprocessor):
+
+    _fields = ['hist_ctr']
+    _replaced_fields = []
+
+    def transform(self, row):
+        hist_ctr = self._get_fields(row)
+
+        row.append('hist_ctr_root', math.sqrt(hist_ctr))
+        row.append('hist_ctr_pow2', hist_ctr ** 2)
+
+        return row
+
+
+class Poly2Mixer(object):
+
+    def __init__(self, fields):
+        self.fields = fields
+
+    def mix(self, row):
+
+        n = len(row)
+        for i in range(n):
+            for j in range(i+1, n):
+                field1, index1, value1 = row[i]
+                field2, index2, value2 = row[j]
+
+                if not(field1 in self.fields and field2 in self.fields):
+                    continue
+
+                if value1 is None or value2 is None:
+                    continue
+
+                field = '{}_{}_{}_{}'.format(field1, index1, field2, index2)
+                index = 0
+                value = value1 * value2
+
+                row.append((field, index, value))
 
         return row

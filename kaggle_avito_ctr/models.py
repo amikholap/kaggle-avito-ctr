@@ -23,7 +23,7 @@ class TableNames(object):
     location = 'location'
     phone_request = 'phone_requests_stream'
     search_info = 'search_info'
-    train_search_stream = 'train_search_stream_last_week'
+    train_search_stream = 'train_search_stream'
     val_search_stream = 'eval_search_stream'
     test_search_stream = 'test_search_stream'
     user_info = 'user_info'
@@ -154,6 +154,8 @@ class UserInfo(Base):
 
     n_context_impressions = Column(Integer)
     n_context_clicks = Column(Integer)
+    n_visits = Column(Integer)
+    n_phone_requests = Column(Integer)
 
 
 class Visit(Base):
